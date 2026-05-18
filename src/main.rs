@@ -8,8 +8,6 @@ fn main() {
     let c = a.powf(2.0) + b.powf(3.0) * 9.0;
     let d = c / 3.0;
     println!("c: {:?}", d.data);
-    let z = d.backward_old();
-    for x in z {
-        print!("{}\n", x.grad);
-    }
+    let z = d.backward();
+    print!("{}\n", z.grad);
 }

@@ -12,6 +12,27 @@ pub struct Value {
     pub grad: f64,
     previous: Option<Box<Previous>>,
 }
+
+#[derive(Clone, Copy)]
+enum BinaryOp {
+    Add,
+    Mul,
+    Sub,
+    Div,
+}
+
+#[derive(Clone, Copy)]
+enum FlatOp {
+    Binary(BinaryOp, usize, usize), // op, left_idx, right_idx in vec
+    Power(usize, f64),
+}
+
+pub struct FlatNode {
+    pub data: f64,
+    pub grad: f64,
+    op: Option<FlatOp>,
+}
+
 #[derive(Debug, PartialEq)]
 pub enum Previous {
     Add(Value, Value),
@@ -81,26 +102,103 @@ impl Value {
             }
         }
         build_topo(self, &mut topo);
-        let mut values: Vec<Value> = vec![];
-        for value in topo {
-            match value.previous {
-                None => {}
-                Some(previous) => {
-                    values.push(value);
+        // let mut values: Vec<Value> = vec![];
+        // for value in topo {
+        //     match value.previous {
+        //         None => {}
+        //         Some(previous) => {
+        //             values.push(value);
 
-                    let value = *previous;
-                    match value {
-                        Previous::Add(lhs, rhs) => {
-                            lhs.grad += self.grad + rhs.grad;
-                        }
-                        Previous::Sub(lhs, rhs) => {}
-                        Previous::Mul(lhs, rhs) => {}
-                        Previous::Pow(lhs, rhs) => {}
-                        Previous::Div(lhs, rhs) => {}
+        //             let value = *previous;
+        //             match value {
+        //                 Previous::Add(lhs, rhs) => {
+        //                     lhs.grad += self.grad + rhs.grad;
+        //                 }
+        //                 Previous::Sub(lhs, rhs) => {}
+        //                 Previous::Mul(lhs, rhs) => {}
+        //                 Previous::Pow(lhs, rhs) => {}
+        //                 Previous::Div(lhs, rhs) => {}
+        //             }
+        //         }
+        //     }
+        // }
+    }
+    /// Consumes the Value tree, flattens into topo-sorted Vec, computes gradients.
+    pub fn backward_old(self) -> Vec<FlatNode> {
+        let mut nodes: Vec<FlatNode> = Vec::new();
+        // Recursively consume the tree, returning each node's index
+        fn flatten(value: Value, nodes: &mut Vec<FlatNode>) -> usize {
+            let op = match value.previous {
+                None => None,
+                Some(boxed) => match *boxed {
+                    Previous::Add(l, r) => {
+                        let li = flatten(l, nodes);
+                        let ri = flatten(r, nodes);
+                        Some(FlatOp::Binary(BinaryOp::Add, li, ri))
+                    }
+                    Previous::Mul(l, r) => {
+                        let li = flatten(l, nodes);
+                        let ri = flatten(r, nodes);
+                        Some(FlatOp::Binary(BinaryOp::Mul, li, ri))
+                    }
+                    Previous::Sub(l, r) => {
+                        let ri = flatten(r, nodes);
+                        let li = flatten(l, nodes);
+                        Some(FlatOp::Binary(BinaryOp::Sub, li, ri))
+                    }
+                    Previous::Div(l, r) => {
+                        let li = flatten(l, nodes);
+                        let ri = flatten(r, nodes);
+                        Some(FlatOp::Binary(BinaryOp::Div, li, ri))
+                    }
+                    Previous::Pow(base, exp) => {
+                        let bi = flatten(base, nodes);
+                        Some(FlatOp::Power(bi, exp))
+                    }
+                },
+            };
+
+            let idx = nodes.len();
+            nodes.push(FlatNode {
+                data: value.data,
+                grad: 0.0,
+                op,
+            });
+            idx
+        }
+        let root = flatten(self, &mut nodes);
+        nodes[root].grad = 1.0; // seed gradient at root
+        // Walk reverse topo order (root is last), propagate chain rule
+        for i in (0..nodes.len()).rev() {
+            let grad = nodes[i].grad;
+            if let Some(op) = nodes[i].op {
+                match op {
+                    FlatOp::Binary(BinaryOp::Add, l, r) => {
+                        nodes[l].grad += grad;
+                        nodes[r].grad += grad;
+                    }
+                    FlatOp::Binary(BinaryOp::Mul, l, r) => {
+                        let (ld, rd) = (nodes[l].data, nodes[r].data);
+                        nodes[l].grad += grad * rd;
+                        nodes[r].grad += grad * ld;
+                    }
+                    FlatOp::Binary(BinaryOp::Sub, l, r) => {
+                        nodes[l].grad += grad;
+                        nodes[r].grad -= grad;
+                    }
+                    FlatOp::Binary(BinaryOp::Div, l, r) => {
+                        let (ld, rd) = (nodes[l].data, nodes[r].data);
+                        nodes[l].grad += grad / rd;
+                        nodes[r].grad -= grad * ld / (rd * rd);
+                    }
+                    FlatOp::Power(base, exp) => {
+                        let bd = nodes[base].data;
+                        nodes[base].grad += grad * exp * bd.powf(exp - 1.0);
                     }
                 }
             }
         }
+        nodes // caller can inspect .grad on any node by index
     }
 }
 

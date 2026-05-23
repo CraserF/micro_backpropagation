@@ -4,7 +4,7 @@ use rand::Rng;
 pub struct Neuron {
     pub weight: Value,
     pub bias: Value,
-    isNonlinear: bool,
+    pub is_non_linear: bool,
 }
 
 // impl Neuron {

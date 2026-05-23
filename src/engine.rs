@@ -1,4 +1,4 @@
-use std::ops::{Add, Div, Mul, Sub};
+use std::ops::{Add, Div, Mul, Neg, Sub};
 
 // Array [Value] => [Grad]
 // We need a recursive type that can track how we got here which stores operators such as Added & Multiplied.
@@ -25,6 +25,7 @@ enum BinaryOp {
 enum FlatOp {
     Binary(BinaryOp, usize, usize), // op, left_idx, right_idx in vec
     Power(usize, f64),
+    Relu(usize), // input_idx
 }
 #[derive(Clone, Copy)]
 pub struct FlatNode {
@@ -40,16 +41,18 @@ pub enum Previous {
     Pow(Value, f64),
     Div(Value, Value),
     Sub(Value, Value),
+    Relu(Value),
 }
 
 impl Clone for Previous {
     fn clone(&self) -> Self {
         match self {
-            Previous::Pow(a, b) => Previous::Pow(a.clone(), b.clone()),
-            Previous::Add(a, b)
-            | Previous::Div(a, b)
-            | Previous::Mul(a, b)
-            | Previous::Sub(a, b) => Previous::Add(a.clone(), b.clone()),
+            Previous::Pow(a, b) => Previous::Pow(a.clone(), *b),
+            Previous::Add(a, b) => Previous::Add(a.clone(), b.clone()),
+            Previous::Div(a, b) => Previous::Div(a.clone(), b.clone()),
+            Previous::Mul(a, b) => Previous::Mul(a.clone(), b.clone()),
+            Previous::Sub(a, b) => Previous::Sub(a.clone(), b.clone()),
+            Previous::Relu(a) => Previous::Relu(a.clone()),
         }
     }
 }
@@ -77,11 +80,19 @@ impl Value {
             previous: Some(Box::new(Previous::Pow(self, other))),
         }
     }
+    pub fn relu(self) -> Self {
+        Value {
+            data: if self.data > 0.0 { self.data } else { 0.0 },
+            grad: 0.0,
+            previous: Some(Box::new(Previous::Relu(self))),
+        }
+    }
     // Addition: z = a + b → a.grad += z.grad * 1.0; b.grad += z.grad * 1.0
     // Multiplication: z = a * b → a.grad += z.grad * b.data; b.grad += z.grad * a.data
     // Subtraction: z = a - b → a.grad += z.grad * 1.0; b.grad += z.grad * -1.0
     // Division: z = a / b → a.grad += z.grad * (1.0 / b.data) b.grad += z.grad * (-a.data / b.data²)
     // Power:z = a^n → a.grad += z.grad * (n * a.data^(n-1))
+    // Relu: z = a.relu() → z.data > 0 ||
     /// Consumes the Value tree, flattens into topo-sorted Vec, computes gradients.
     pub fn backward(self) -> Value {
         let mut nodes: Vec<FlatNode> = Vec::new();
@@ -114,6 +125,10 @@ impl Value {
                         let bi = flatten(base, nodes);
                         Some(FlatOp::Power(bi, exp))
                     }
+                    Previous::Relu(input) => {
+                        let ii = flatten(input, nodes);
+                        Some(FlatOp::Relu(ii))
+                    }
                 },
             };
 
@@ -127,7 +142,6 @@ impl Value {
         }
         let root = flatten(self, &mut nodes);
         nodes[root].grad = 1.0; // seed gradient at root
-        print!("Root Node {} {}", root, nodes[root].data);
         // Walk reverse topo order (root is last), propagate chain rule
         for i in (0..nodes.len()).rev() {
             let grad = nodes[i].grad;
@@ -154,6 +168,10 @@ impl Value {
                     FlatOp::Power(base, exp) => {
                         let bd = nodes[base].data;
                         nodes[base].grad += grad * exp * bd.powf(exp - 1.0);
+                    }
+                    FlatOp::Relu(input) => {
+                        // Pass gradient through if output was positive, else block it
+                        nodes[input].grad += if nodes[i].data > 0.0 { grad } else { 0.0 };
                     }
                 }
             }
@@ -193,6 +211,10 @@ impl Value {
                             let lv = convert_to_value(&nodes[base], values, nodes);
                             Some(Box::new(Previous::Pow(lv, exp)))
                         }
+                        FlatOp::Relu(input) => {
+                            let iv = convert_to_value(&nodes[input], values, nodes);
+                            Some(Box::new(Previous::Relu(iv)))
+                        }
                     }
                 } else {
                     None
@@ -200,6 +222,13 @@ impl Value {
             }
         }
         convert_to_value(&nodes[root], values, &nodes)
+    }
+}
+
+impl Neg for Value {
+    type Output = Self;
+    fn neg(self) -> Self::Output {
+        self * -1.0
     }
 }
 
@@ -242,6 +271,13 @@ impl Add<Value> for f64 {
     type Output = Value;
     fn add(self, rhs: Value) -> Value {
         rhs + self
+    }
+}
+
+impl Div<Value> for f64 {
+    type Output = Value;
+    fn div(self, rhs: Value) -> Value {
+        Value::init(self) / rhs
     }
 }
 

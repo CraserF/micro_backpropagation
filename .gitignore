@@ -1,0 +1,33 @@
+# Dependencies
+node_modules/
+.pnp.*
+.yarn/*
+
+# Build output
+dist/
+build/
+.next/
+out/
+.wrangler/
+.turbo/
+
+# Env / secrets
+.env
+.env.*
+!.env.example
+.dev.vars
+
+# Logs
+*.log
+npm-debug.log*
+pnpm-debug.log*
+
+# Editor / OS
+.DS_Store
+.idea/
+.vscode/*
+!.vscode/extensions.json
+
+# Cloudflare / D1 local state
+.mf/
+wrangler.local.toml

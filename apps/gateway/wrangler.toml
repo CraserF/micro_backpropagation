@@ -1,0 +1,25 @@
+name = "llm-api-gateway"
+main = "src/index.ts"
+compatibility_date = "2026-05-01"
+compatibility_flags = ["nodejs_compat"]
+
+# D1: users, orgs, projects, api_keys, usage_daily, plans, audit_log
+[[d1_databases]]
+binding = "DB"
+database_name = "llm-api"
+database_id = "REPLACE_WITH_D1_ID"
+
+# Durable Object: live rate-limit counters / sliding windows
+[[durable_objects.bindings]]
+name = "RATE_LIMITER"
+class_name = "RateLimiter"
+
+[[migrations]]
+tag = "v1"
+new_sqlite_classes = ["RateLimiter"]
+
+# Secrets (set via `wrangler secret put`):
+#   DEEPSEEK_API_KEY, OPENROUTER_API_KEY, DEEPINFRA_API_KEY,
+#   BETTER_AUTH_SECRET, TURNSTILE_SECRET_KEY
+[vars]
+PRIMARY_PROVIDER = "deepseek"

@@ -1,4 +1,4 @@
-# llm-api-service
+# llm-api
 
 A client-side-friendly LLM API gateway — "Firebase for LLM calls". Customers embed a public
 client key + a short-lived JWT in their app and call our edge API directly; we rate-limit,
